@@ -1,8 +1,10 @@
 import os
+import folium
 import numpy as np
 import pandas as pd
-import plotly.express as px
 import streamlit as st
+from folium.plugins import MarkerCluster
+from streamlit_folium import st_folium
 
 # ==========================================
 # 1. 페이지 기본 설정
@@ -53,7 +55,7 @@ if is_dark:
 else:
     st.session_state.theme_mode = "light"
 
-# 테마에 따른 CSS 스타일 적용
+# 테마에 따른 CSS 스타일 및 Folium 타일 적용
 if st.session_state.theme_mode == "dark":
     st.markdown(
         """
@@ -78,7 +80,7 @@ if st.session_state.theme_mode == "dark":
         """,
         unsafe_allow_html=True,
     )
-    plotly_template = "plotly_dark"
+    folium_tiles = "CartoDB dark_matter"  # 다크모드 전용 지도 타일
 else:
     st.markdown(
         """
@@ -93,7 +95,7 @@ else:
         """,
         unsafe_allow_html=True,
     )
-    plotly_template = "plotly_white"
+    folium_tiles = "OpenStreetMap"  # 기본 화이트모드 지도 타일
 
 # ==========================================
 # 3. 타이틀 표시
@@ -166,11 +168,6 @@ def load_data():
     df["경도"] = pd.to_numeric(df["경도"], errors="coerce")
     df = df.dropna(subset=["위도", "경도"])
 
-    # 범주 아이콘 명칭 추가 (지도 표기용)
-    df["업종_구분"] = df["상권업종소분류명"].apply(
-        lambda x: "🏪 편의점" if x == "편의점" else "☕ 카페"
-    )
-
     return df
 
 
@@ -219,7 +216,7 @@ if use_radius_search:
         store_options = (
             df_filtered["상호명"]
             + " ("
-            + df_filtered["업종_구분"]
+            + df_filtered["상권업종소분류명"]
             + " - "
             + df_filtered["동명"]
             + ")"
@@ -280,60 +277,48 @@ st.markdown("---")
 
 
 # ==========================================
-# 8. 메인 화면 - Plotly 지도 표시
+# 8. 메인 화면 - Folium 지도 (아이콘 마커 적용)
 # ==========================================
 if df_filtered.empty:
     st.info("조건에 일치하는 매장이 없습니다. 검색 조건이나 반경을 변경해보세요.")
 else:
-    # 테마별 선명한 색상 지정
-    if st.session_state.theme_mode == "dark":
-        color_map = {"🏪 편의점": "#00d2ff", "☕ 카페": "#ff9f43"}
-    else:
-        color_map = {"🏪 편의점": "#1f77b4", "☕ 카페": "#e67e22"}
-
     # 중심점 및 zoom 설정
     if use_radius_search and selected_center_store is not None:
         center_lat = selected_center_store["위도"]
         center_lon = selected_center_store["경도"]
-        zoom_level = 13
+        zoom_level = 14
     else:
         center_lat = df_filtered["위도"].mean()
         center_lon = df_filtered["경도"].mean()
-        zoom_level = 12 if selected_dong != "전체" else 10
+        zoom_level = 13 if selected_dong != "전체" else 11
 
-    # Map 공통 파라미터
-    map_kwargs = dict(
-        data_frame=df_filtered,
-        lat="위도",
-        lon="경도",
-        color="업종_구분",
-        color_discrete_map=color_map,
-        hover_name="상호명",
-        hover_data={
-            "업종_구분": True,
-            "동명": True,
-            "상권업종소분류명": False,
-            "위도": False,
-            "경도": False,
-        },
-        zoom=zoom_level,
-        center={"lat": center_lat, "lon": center_lon},
-        height=620,
+    # Folium 지도 생성
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=zoom_level,
+        tiles=folium_tiles,
     )
 
-    # Plotly scatter_map / scatter_mapbox 분기
-    if hasattr(px, "scatter_map"):
-        fig = px.scatter_map(map_style="open-street-map", **map_kwargs)
-    else:
-        fig = px.scatter_mapbox(mapbox_style="open-street-map", **map_kwargs)
+    # 데이터 수가 많을 때 쾌적한 표시를 위한 마커 클러스터 설정
+    marker_cluster = MarkerCluster().add_to(m)
 
-    # 마커 스타일링 및 레이아웃 설정
-    fig.update_traces(marker=dict(size=12, opacity=0.85))
-    fig.update_layout(
-        template=plotly_template,
-        margin={"r": 0, "t": 0, "l": 0, "b": 0},
-        legend_title_text="매장 구분",
-    )
+    # 각 지점마다 개별 아이콘 달기
+    for _, row in df_filtered.iterrows():
+        is_cafe = row["상권업종소분류명"] == "카페"
 
-    # 지도 출력
-    st.plotly_chart(fig, use_container_width=True)
+        # 카페: 커피 아이콘(주황/빨간색) / 편의점: 쇼핑 카트 아이콘(파란색)
+        icon_name = "coffee" if is_cafe else "shopping-cart"
+        icon_color = "orange" if is_cafe else "blue"
+        category_text = "☕ 카페" if is_cafe else "🏪 편의점"
+
+        folium.Marker(
+            location=[row["위도"], row["경도"]],
+            popup=f"<b>{row['상호명']}</b><br>업종: {category_text}<br>동: {row['동명']}",
+            tooltip=f"{row['상호명']} ({category_text})",
+            icon=folium.Icon(
+                color=icon_color, icon=icon_name, prefix="fa"
+            ),  # FontAwesome 아이콘
+        ).add_to(marker_cluster)
+
+    # Streamlit 지도 화면 출력
+    st_folium(m, width="100%", height=620, returned_objects=[])

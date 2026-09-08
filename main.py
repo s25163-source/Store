@@ -5,12 +5,84 @@ import plotly.express as px
 import streamlit as st
 
 # ==========================================
-# 1. 페이지 기본 설정 및 제목 표시
+# 1. 페이지 기본 설정
 # ==========================================
 st.set_page_config(
     page_title="편의점 & 카페 지도 검색", page_icon="🏪", layout="wide"
 )
 
+# ==========================================
+# 2. 다크 모드 / 라이트 모드 (온오프 버튼) 처리
+# ==========================================
+# 세션 상태에 테마 모드 저장 (기본값: 라이트 모드)
+if "theme_mode" not in st.session_state:
+    st.session_state.theme_mode = "light"
+
+# 사이드바 상단에 테마 모드 온오프 토글 버튼 생성
+st.sidebar.header("🎨 테마 설정")
+is_dark = st.sidebar.toggle(
+    "🌙 검정색 배경 (다크 모드)",
+    value=(st.session_state.theme_mode == "dark"),
+)
+
+# 토글 상태에 따른 세션 저장
+if is_dark:
+    st.session_state.theme_mode = "dark"
+else:
+    st.session_state.theme_mode = "light"
+
+# 테마에 따른 CSS 스타일 적용
+if st.session_state.theme_mode == "dark":
+    # 검정색 배경 다크 모드 CSS
+    st.markdown(
+        """
+        <style>
+        /* 메인 및 사이드바 배경 검정색 설정 */
+        .stApp, [data-testid="stSidebar"] {
+            background-color: #000000 !important;
+            color: #ffffff !important;
+        }
+        /* 텍스트 및 라벨 흰색 설정 */
+        h1, h2, h3, h4, h5, h6, p, label, .stMarkdown, div {
+            color: #ffffff !important;
+        }
+        /* 지표 카드(st.metric) 배경 및 테두리 설정 */
+        [data-testid="stMetric"] {
+            background-color: #111111 !important;
+            border: 1px solid #333333 !important;
+            border-radius: 8px;
+            padding: 10px;
+        }
+        [data-testid="stMetricValue"] {
+            color: #00e676 !important; /* 지표 숫자 강조색 */
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    # Plotly 지도 및 차트용 다크 템플릿 지정
+    plotly_template = "plotly_dark"
+else:
+    # 기본 라이트 모드 CSS (지표 카드에 깔끔한 테두리만 추가)
+    st.markdown(
+        """
+        <style>
+        [data-testid="stMetric"] {
+            background-color: #f8f9fa !important;
+            border: 1px solid #e9ecef !important;
+            border-radius: 8px;
+            padding: 10px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    # Plotly 지도 및 차트용 라이트 템플릿 지정
+    plotly_template = "plotly_white"
+
+# ==========================================
+# 3. 타이틀 표시
+# ==========================================
 st.title("🏪 편의점 & 카페 위치 안내 지도")
 st.caption(
     "시/도 및 동별 분류 선택, 특정 매장 기준 반경 내 매장 검색 기능을 제공합니다."
@@ -18,13 +90,12 @@ st.caption(
 
 
 # ==========================================
-# 2. 하버사인(Haversine) 거리 계산 함수 정의
+# 4. 하버사인(Haversine) 거리 계산 함수 정의
 # ==========================================
 def haversine_distance(lat1, lon1, lat2, lon2):
     """두 위도/경도 좌표 간의 대권 거리(km)를 하버사인 공식으로 계산합니다."""
     R = 6371.0  # 지구 반지름 (단위: km)
 
-    # 도(degree)를 라디안(radian)으로 변환
     lat1_rad, lon1_rad = np.radians(lat1), np.radians(lon1)
     lat2_rad, lon2_rad = np.radians(lat2), np.radians(lon2)
 
@@ -42,11 +113,10 @@ def haversine_distance(lat1, lon1, lat2, lon2):
 
 
 # ==========================================
-# 3. 데이터 불러오기 및 전처리 (캐싱 적용)
+# 5. 데이터 불러오기 및 전처리 (캐싱 적용)
 # ==========================================
 @st.cache_data
 def load_data():
-    # 파일 존재 여부 확인 후 로드 (store.csv -> store_filtered.csv 순서로 시도)
     file_path = "store.csv"
     if not os.path.exists(file_path):
         if os.path.exists("store_filtered.csv"):
@@ -59,14 +129,13 @@ def load_data():
 
     df = pd.read_csv(file_path)
 
-    # 필수 열 존재 여부 확인
     required_cols = ["상호명", "위도", "경도", "상권업종소분류명", "시도명"]
     for col in required_cols:
         if col not in df.columns:
             st.error(f"데이터셋에 필수 열 '{col}'이(가) 없습니다.")
             return pd.DataFrame()
 
-    # 동명 컬럼 자동 지정 (행정동명, 법정동명, 동명 순으로 확인)
+    # 동명 컬럼 자동 지정
     dong_col = None
     for candidate in ["행정동명", "법정동명", "동명"]:
         if candidate in df.columns:
@@ -91,15 +160,15 @@ def load_data():
 
 df_raw = load_data()
 
-# 데이터가 비어있는 경우 앱 진행 중단
 if df_raw.empty:
     st.warning("표시할 데이터가 없습니다. CSV 파일을 확인해주세요.")
     st.stop()
 
 
 # ==========================================
-# 4. 사이드바 - 지역(시/도, 동) 및 옵션 선택 UI
+# 6. 사이드바 - 지역(시/도, 동) 및 필터 옵션 UI
 # ==========================================
+st.sidebar.markdown("---")
 st.sidebar.header("🔍 검색 및 필터 옵션")
 
 # 1) 시/도 선택
@@ -109,7 +178,7 @@ selected_sido = st.sidebar.selectbox("지역(시/도) 선택", sido_list)
 # 선택한 시/도의 데이터만 1차 필터링
 df_sido = df_raw[df_raw["시도명"] == selected_sido].copy()
 
-# 2) 동 선택 (해당 시/도에 포함된 동 목록 추출)
+# 2) 동 선택
 dong_list = ["전체"] + sorted(df_sido["동명"].dropna().unique().tolist())
 selected_dong = st.sidebar.selectbox("동 선택", dong_list)
 
@@ -133,7 +202,6 @@ if use_radius_search:
     if df_filtered.empty:
         st.sidebar.warning("선택한 지역에 매장이 없어 반경 검색을 할 수 없습니다.")
     else:
-        # 선택한 지역(시/도 및 동) 내 매장 목록에서 기준 매장 선택
         store_options = (
             df_filtered["상호명"]
             + " ("
@@ -148,7 +216,6 @@ if use_radius_search:
             index=0 if len(store_options) > 0 else None,
         )
 
-        # 검색 반경 슬라이더 (0.5km ~ 10.0km)
         radius_km = st.sidebar.slider(
             "검색 반경 (km)",
             min_value=0.5,
@@ -158,13 +225,11 @@ if use_radius_search:
         )
 
         if selected_store_label:
-            # 선택한 매장의 정보 가져오기
             selected_idx = store_options[
                 store_options == selected_store_label
             ].index[0]
             selected_center_store = df_filtered.loc[selected_idx]
 
-            # 거리 계산 (기준 매장부터 전체 시/도 매장 대상 계산)
             distances = haversine_distance(
                 selected_center_store["위도"],
                 selected_center_store["경도"],
@@ -172,12 +237,11 @@ if use_radius_search:
                 df_filtered["경도"],
             )
 
-            # 설정한 반경 내 매장만 필터링
             df_filtered = df_filtered[distances <= radius_km]
 
 
 # ==========================================
-# 5. 메인 화면 - 지표 카드(st.metric) 표시
+# 7. 메인 화면 - 지표 카드(st.metric) 표시
 # ==========================================
 if use_radius_search and selected_center_store is not None:
     st.subheader(
@@ -204,25 +268,29 @@ st.markdown("---")
 
 
 # ==========================================
-# 6. 메인 화면 - Plotly 지도 그리기
+# 8. 메인 화면 - Plotly 지도 그리기
 # ==========================================
 if df_filtered.empty:
     st.info("조건에 일치하는 매장이 없습니다. 검색 조건이나 반경을 변경해보세요.")
 else:
-    # 색상 지정: 편의점(파란색), 카페(주황색)
-    color_map = {"편의점": "#1f77b4", "카페": "#ff7f0e"}
+    # 색상 지정: 편의점(파란색 계열), 카페(주황색/밝은 노란색 계열)
+    if st.session_state.theme_mode == "dark":
+        # 다크 모드용 시인성이 좋은 밝은 파란색 및 주황색
+        color_map = {"편의점": "#00d2ff", "카페": "#ff9f43"}
+    else:
+        color_map = {"편의점": "#1f77b4", "카페": "#ff7f0e"}
 
-    # 지도의 중심점 및 확대 레벨 설정
+    # 중심점 및 확대 레벨 설정
     if use_radius_search and selected_center_store is not None:
         center_lat = selected_center_store["위도"]
         center_lon = selected_center_store["경도"]
-        zoom_level = 13  # 반경 검색 시 확대
+        zoom_level = 13
     else:
         center_lat = df_filtered["위도"].mean()
         center_lon = df_filtered["경도"].mean()
         zoom_level = 12 if selected_dong != "전체" else 10
 
-    # Plotly 버전 호환 처리 (px.scatter_map 또는 px.scatter_mapbox 사용)
+    # Plotly 공통 파라미터
     map_kwargs = dict(
         data_frame=df_filtered,
         lat="위도",
@@ -241,15 +309,15 @@ else:
         height=600,
     )
 
+    # Plotly 버전 호환 처리 (px.scatter_map 또는 px.scatter_mapbox)
     if hasattr(px, "scatter_map"):
-        # Plotly 최신 버전
         fig = px.scatter_map(map_style="open-street-map", **map_kwargs)
     else:
-        # Plotly 구버전 호환
         fig = px.scatter_mapbox(mapbox_style="open-street-map", **map_kwargs)
 
-    # 레이아웃 범례 및 여백 조정
+    # 다크/라이트 테마 및 레이아웃 설정
     fig.update_layout(
+        template=plotly_template,
         margin={"r": 0, "t": 0, "l": 0, "b": 0},
         legend_title_text="업종 구분",
     )

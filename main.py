@@ -14,28 +14,22 @@ st.set_page_config(
 # ==========================================
 # 2. 다크 모드 / 라이트 모드 (대형 토글 버튼) 처리
 # ==========================================
-# 세션 상태에 테마 모드 저장 (기본값: 라이트 모드)
 if "theme_mode" not in st.session_state:
     st.session_state.theme_mode = "light"
 
-# 토글 버튼 및 사이드바 영역 CSS 커스텀 스타일링 (크기 및 시인성 대폭 강화)
+# 토글 버튼 및 사이드바 스타일링
 st.markdown(
     """
     <style>
-    /* 토글 스위치 전체 영역 크기 키우기 */
     div[data-testid="stCheckbox"] {
         padding: 8px 12px !important;
         border-radius: 12px !important;
     }
-    
-    /* 토글 스위치 라벨 글자 크기 및 두께 강화 */
     div[data-testid="stCheckbox"] label p {
         font-size: 1.25rem !important;
         font-weight: 800 !important;
         line-height: 1.5 !important;
     }
-
-    /* 토글 버튼 클릭 스위치 자체의 크기 확대 */
     div[data-testid="stCheckbox"] label [role="switch"] {
         transform: scale(1.35) !important;
         margin-right: 12px !important;
@@ -45,10 +39,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# 사이드바 상단에 대형 테마 토글 카드 생성
 st.sidebar.markdown("### 🎨 화면 테마 설정")
 
-# 테마 강조 컨테이너 박스
 with st.sidebar.container(border=True):
     is_dark = st.toggle(
         "🌙 검정 배경 다크모드",
@@ -56,7 +48,6 @@ with st.sidebar.container(border=True):
         help="클릭하여 다크 모드 / 화이트 모드를 전환합니다.",
     )
 
-# 토글 상태에 따른 세션 저장
 if is_dark:
     st.session_state.theme_mode = "dark"
 else:
@@ -64,20 +55,16 @@ else:
 
 # 테마에 따른 CSS 스타일 적용
 if st.session_state.theme_mode == "dark":
-    # 검정색 배경 다크 모드 CSS
     st.markdown(
         """
         <style>
-        /* 메인 및 사이드바 배경 검정색 설정 */
         .stApp, [data-testid="stSidebar"] {
             background-color: #000000 !important;
             color: #ffffff !important;
         }
-        /* 텍스트 및 라벨 흰색 설정 */
         h1, h2, h3, h4, h5, h6, p, label, .stMarkdown, div {
             color: #ffffff !important;
         }
-        /* 지표 카드(st.metric) 배경 및 테두리 설정 */
         [data-testid="stMetric"] {
             background-color: #111111 !important;
             border: 1px solid #333333 !important;
@@ -85,16 +72,14 @@ if st.session_state.theme_mode == "dark":
             padding: 10px;
         }
         [data-testid="stMetricValue"] {
-            color: #00e676 !important; /* 지표 숫자 강조색 */
+            color: #00e676 !important;
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
-    # Plotly 지도 및 차트용 다크 템플릿 지정
     plotly_template = "plotly_dark"
 else:
-    # 기본 라이트 모드 CSS (지표 카드에 깔끔한 테두리만 추가)
     st.markdown(
         """
         <style>
@@ -108,7 +93,6 @@ else:
         """,
         unsafe_allow_html=True,
     )
-    # Plotly 지도 및 차트용 라이트 템플릿 지정
     plotly_template = "plotly_white"
 
 # ==========================================
@@ -121,11 +105,11 @@ st.caption(
 
 
 # ==========================================
-# 4. 하버사인(Haversine) 거리 계산 함수 정의
+# 4. 하버사인(Haversine) 거리 계산 함수
 # ==========================================
 def haversine_distance(lat1, lon1, lat2, lon2):
-    """두 위도/경도 좌표 간의 대권 거리(km)를 하버사인 공식으로 계산합니다."""
-    R = 6371.0  # 지구 반지름 (단위: km)
+    """두 위도/경도 좌표 간의 대권 거리(km)를 계산합니다."""
+    R = 6371.0
 
     lat1_rad, lon1_rad = np.radians(lat1), np.radians(lon1)
     lat2_rad, lon2_rad = np.radians(lat2), np.radians(lon2)
@@ -139,12 +123,11 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     )
     c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
 
-    distance = R * c
-    return distance
+    return R * c
 
 
 # ==========================================
-# 5. 데이터 불러오기 및 전처리 (캐싱 적용)
+# 5. 데이터 불러오기 및 전처리
 # ==========================================
 @st.cache_data
 def load_data():
@@ -166,7 +149,6 @@ def load_data():
             st.error(f"데이터셋에 필수 열 '{col}'이(가) 없습니다.")
             return pd.DataFrame()
 
-    # 동명 컬럼 자동 지정
     dong_col = None
     for candidate in ["행정동명", "법정동명", "동명"]:
         if candidate in df.columns:
@@ -178,10 +160,8 @@ def load_data():
     else:
         df["동명"] = "전체"
 
-    # 업종 필터링 ("편의점", "카페"만 추출)
     df = df[df["상권업종소분류명"].isin(["편의점", "카페"])].copy()
 
-    # 위도, 경도 숫자형 변환 및 결측치 제거
     df["위도"] = pd.to_numeric(df["위도"], errors="coerce")
     df["경도"] = pd.to_numeric(df["경도"], errors="coerce")
     df = df.dropna(subset=["위도", "경도"])
@@ -206,14 +186,12 @@ st.sidebar.header("🔍 검색 및 필터 옵션")
 sido_list = sorted(df_raw["시도명"].dropna().unique())
 selected_sido = st.sidebar.selectbox("지역(시/도) 선택", sido_list)
 
-# 선택한 시/도의 데이터만 1차 필터링
 df_sido = df_raw[df_raw["시도명"] == selected_sido].copy()
 
 # 2) 동 선택
 dong_list = ["전체"] + sorted(df_sido["동명"].dropna().unique().tolist())
 selected_dong = st.sidebar.selectbox("동 선택", dong_list)
 
-# 동 필터링 적용
 if selected_dong != "전체":
     df_filtered = df_sido[df_sido["동명"] == selected_dong].copy()
 else:
@@ -282,36 +260,36 @@ else:
     dong_text = f" {selected_dong}" if selected_dong != "전체" else ""
     st.subheader(f"📍 {selected_sido}{dong_text} 매장 현황")
 
-# 각 업종별 개수 집계
 total_count = len(df_filtered)
 convenience_count = len(
     df_filtered[df_filtered["상권업종소분류명"] == "편의점"]
 )
 cafe_count = len(df_filtered[df_filtered["상권업종소분류명"] == "카페"])
 
-# 3개의 컬럼으로 지표 표시
 col1, col2, col3 = st.columns(3)
 col1.metric("전체 매장 수", f"{total_count:,} 개")
-col2.metric("편의점 수", f"{convenience_count:,} 개")
-col3.metric("카페 수", f"{cafe_count:,} 개")
+col2.metric("편의점 🏪", f"{convenience_count:,} 개")
+col3.metric("카페 ☕", f"{cafe_count:,} 개")
 
 st.markdown("---")
 
 
 # ==========================================
-# 8. 메인 화면 - Plotly 지도 그리기
+# 8. 메인 화면 - Plotly 지도 (아이콘 심볼 적용)
 # ==========================================
 if df_filtered.empty:
     st.info("조건에 일치하는 매장이 없습니다. 검색 조건이나 반경을 변경해보세요.")
 else:
-    # 색상 지정: 편의점(파란색 계열), 카페(주황색/밝은 노란색 계열)
+    # 1) 테마별 색상 및 기호(아이콘 심볼) 매핑
     if st.session_state.theme_mode == "dark":
-        # 다크 모드용 시인성이 좋은 밝은 파란색 및 주황색
         color_map = {"편의점": "#00d2ff", "카페": "#ff9f43"}
     else:
-        color_map = {"편의점": "#1f77b4", "카페": "#ff7f0e"}
+        color_map = {"편의점": "#1f77b4", "카페": "#d9534f"}
 
-    # 중심점 및 확대 레벨 설정
+    # 업종별 심볼 아이콘 지정 (Plotly Mapbox/Map 지원 기호)
+    symbol_map = {"카페": "cafe", "편의점": "grocery"}
+
+    # 중심점 및 zoom 설정
     if use_radius_search and selected_center_store is not None:
         center_lat = selected_center_store["위도"]
         center_lon = selected_center_store["경도"]
@@ -321,13 +299,15 @@ else:
         center_lon = df_filtered["경도"].mean()
         zoom_level = 12 if selected_dong != "전체" else 10
 
-    # Plotly 공통 파라미터
+    # Map 공통 파라미터
     map_kwargs = dict(
         data_frame=df_filtered,
         lat="위도",
         lon="경도",
         color="상권업종소분류명",
+        symbol="상권업종소분류명",  # 업종에 따라 각기 다른 아이콘 기호 부여
         color_discrete_map=color_map,
+        symbol_map=symbol_map,
         hover_name="상호명",
         hover_data={
             "상권업종소분류명": True,
@@ -337,21 +317,25 @@ else:
         },
         zoom=zoom_level,
         center={"lat": center_lat, "lon": center_lon},
-        height=600,
+        height=620,
     )
 
-    # Plotly 버전 호환 처리 (px.scatter_map 또는 px.scatter_mapbox)
+    # Plotly scatter_map / scatter_mapbox 분기 및 호출
     if hasattr(px, "scatter_map"):
         fig = px.scatter_map(map_style="open-street-map", **map_kwargs)
+        # 아이콘 크기 키우기 (최신 scatter_map 용)
+        fig.update_traces(marker=dict(size=14))
     else:
         fig = px.scatter_mapbox(mapbox_style="open-street-map", **map_kwargs)
+        # 아이콘 크기 키우기 (구버전 scatter_mapbox 용)
+        fig.update_traces(marker=dict(size=14))
 
-    # 다크/라이트 테마 및 레이아웃 설정
+    # 레이아웃 및 테마 설정
     fig.update_layout(
         template=plotly_template,
         margin={"r": 0, "t": 0, "l": 0, "b": 0},
-        legend_title_text="업종 구분",
+        legend_title_text="매장 구분",
     )
 
-    # Streamlit 화면에 지도 출력
+    # 지도 출력
     st.plotly_chart(fig, use_container_width=True)

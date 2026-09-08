@@ -13,7 +13,7 @@ st.set_page_config(
 
 st.title("🏪 편의점 & 카페 위치 안내 지도")
 st.caption(
-    "시/도별 선택 및 특정 매장 기준 반경 내 매장 검색 기능을 제공합니다."
+    "시/도 및 동별 분류 선택, 특정 매장 기준 반경 내 매장 검색 기능을 제공합니다."
 )
 
 
@@ -66,6 +66,18 @@ def load_data():
             st.error(f"데이터셋에 필수 열 '{col}'이(가) 없습니다.")
             return pd.DataFrame()
 
+    # 동명 컬럼 자동 지정 (행정동명, 법정동명, 동명 순으로 확인)
+    dong_col = None
+    for candidate in ["행정동명", "법정동명", "동명"]:
+        if candidate in df.columns:
+            dong_col = candidate
+            break
+
+    if dong_col:
+        df["동명"] = df[dong_col].fillna("기타/미분류")
+    else:
+        df["동명"] = "전체"
+
     # 업종 필터링 ("편의점", "카페"만 추출)
     df = df[df["상권업종소분류명"].isin(["편의점", "카페"])].copy()
 
@@ -86,7 +98,7 @@ if df_raw.empty:
 
 
 # ==========================================
-# 4. 사이드바 - 지역 및 옵션 선택 UI
+# 4. 사이드바 - 지역(시/도, 동) 및 옵션 선택 UI
 # ==========================================
 st.sidebar.header("🔍 검색 및 필터 옵션")
 
@@ -95,11 +107,21 @@ sido_list = sorted(df_raw["시도명"].dropna().unique())
 selected_sido = st.sidebar.selectbox("지역(시/도) 선택", sido_list)
 
 # 선택한 시/도의 데이터만 1차 필터링
-df_filtered = df_raw[df_raw["시도명"] == selected_sido].copy()
+df_sido = df_raw[df_raw["시도명"] == selected_sido].copy()
+
+# 2) 동 선택 (해당 시/도에 포함된 동 목록 추출)
+dong_list = ["전체"] + sorted(df_sido["동명"].dropna().unique().tolist())
+selected_dong = st.sidebar.selectbox("동 선택", dong_list)
+
+# 동 필터링 적용
+if selected_dong != "전체":
+    df_filtered = df_sido[df_sido["동명"] == selected_dong].copy()
+else:
+    df_filtered = df_sido.copy()
 
 st.sidebar.markdown("---")
 
-# 2) 반경 검색 옵션
+# 3) 반경 검색 옵션
 use_radius_search = st.sidebar.checkbox("반경 검색 사용하기")
 
 selected_center_store = None
@@ -108,42 +130,50 @@ radius_km = 1.0
 if use_radius_search:
     st.sidebar.subheader("📍 반경 검색 설정")
 
-    # 선택한 시/도 내 매장 목록에서 기준 매장 선택
-    store_options = (
-        df_filtered["상호명"] + " (" + df_filtered["상권업종소분류명"] + ")"
-    )
-    selected_store_label = st.sidebar.selectbox(
-        "기준 매장 선택",
-        options=store_options,
-        index=0 if len(store_options) > 0 else None,
-    )
-
-    # 검색 반경 슬라이더 (0.5km ~ 10.0km)
-    radius_km = st.sidebar.slider(
-        "검색 반경 (km)",
-        min_value=0.5,
-        max_value=10.0,
-        value=1.0,
-        step=0.5,
-    )
-
-    if selected_store_label:
-        # 선택한 매장의 정보 가져오기
-        selected_idx = store_options[
-            store_options == selected_store_label
-        ].index[0]
-        selected_center_store = df_filtered.loc[selected_idx]
-
-        # 거리 계산
-        distances = haversine_distance(
-            selected_center_store["위도"],
-            selected_center_store["경도"],
-            df_filtered["위도"],
-            df_filtered["경도"],
+    if df_filtered.empty:
+        st.sidebar.warning("선택한 지역에 매장이 없어 반경 검색을 할 수 없습니다.")
+    else:
+        # 선택한 지역(시/도 및 동) 내 매장 목록에서 기준 매장 선택
+        store_options = (
+            df_filtered["상호명"]
+            + " ("
+            + df_filtered["상권업종소분류명"]
+            + " - "
+            + df_filtered["동명"]
+            + ")"
+        )
+        selected_store_label = st.sidebar.selectbox(
+            "기준 매장 선택",
+            options=store_options,
+            index=0 if len(store_options) > 0 else None,
         )
 
-        # 설정한 반경 내 매장만 필터링
-        df_filtered = df_filtered[distances <= radius_km]
+        # 검색 반경 슬라이더 (0.5km ~ 10.0km)
+        radius_km = st.sidebar.slider(
+            "검색 반경 (km)",
+            min_value=0.5,
+            max_value=10.0,
+            value=1.0,
+            step=0.5,
+        )
+
+        if selected_store_label:
+            # 선택한 매장의 정보 가져오기
+            selected_idx = store_options[
+                store_options == selected_store_label
+            ].index[0]
+            selected_center_store = df_filtered.loc[selected_idx]
+
+            # 거리 계산 (기준 매장부터 전체 시/도 매장 대상 계산)
+            distances = haversine_distance(
+                selected_center_store["위도"],
+                selected_center_store["경도"],
+                df_filtered["위도"],
+                df_filtered["경도"],
+            )
+
+            # 설정한 반경 내 매장만 필터링
+            df_filtered = df_filtered[distances <= radius_km]
 
 
 # ==========================================
@@ -153,6 +183,9 @@ if use_radius_search and selected_center_store is not None:
     st.subheader(
         f"📍 [{selected_center_store['상호명']}] 기준 반경 {radius_km}km 이내"
     )
+else:
+    dong_text = f" {selected_dong}" if selected_dong != "전체" else ""
+    st.subheader(f"📍 {selected_sido}{dong_text} 매장 현황")
 
 # 각 업종별 개수 집계
 total_count = len(df_filtered)
@@ -183,11 +216,11 @@ else:
     if use_radius_search and selected_center_store is not None:
         center_lat = selected_center_store["위도"]
         center_lon = selected_center_store["경도"]
-        zoom_level = 13  # 반경 검색 시 중심 매장 기준으로 확대
+        zoom_level = 13  # 반경 검색 시 확대
     else:
         center_lat = df_filtered["위도"].mean()
         center_lon = df_filtered["경도"].mean()
-        zoom_level = 10
+        zoom_level = 12 if selected_dong != "전체" else 10
 
     # Plotly 버전 호환 처리 (px.scatter_map 또는 px.scatter_mapbox 사용)
     map_kwargs = dict(
@@ -197,7 +230,12 @@ else:
         color="상권업종소분류명",
         color_discrete_map=color_map,
         hover_name="상호명",
-        hover_data={"상권업종소분류명": True, "위도": False, "경도": False},
+        hover_data={
+            "상권업종소분류명": True,
+            "동명": True,
+            "위도": False,
+            "경도": False,
+        },
         zoom=zoom_level,
         center={"lat": center_lat, "lon": center_lon},
         height=600,

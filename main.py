@@ -12,72 +12,82 @@ st.set_page_config(
 )
 
 # ==========================================
-# 2. 다크 모드 / 라이트 모드 (온오프 버튼) 처리
+# 2. 다크 모드 / 라이트 모드 (온오프 토글) 처리
 # ==========================================
 # 세션 상태에 테마 모드 저장 (기본값: 라이트 모드)
 if "theme_mode" not in st.session_state:
     st.session_state.theme_mode = "light"
 
-# 사이드바 상단에 테마 모드 온오프 토글 버튼 생성
+# 사이드바 상단에 테마 모드 토글 버튼 생성
 st.sidebar.header("🎨 테마 설정")
 is_dark = st.sidebar.toggle(
     "🌙 검정색 배경 (다크 모드)",
     value=(st.session_state.theme_mode == "dark"),
 )
 
-# 토글 상태에 따른 세션 저장
+# 토글 상태 반영
 if is_dark:
     st.session_state.theme_mode = "dark"
 else:
     st.session_state.theme_mode = "light"
 
-# 테마에 따른 CSS 스타일 적용
+# 테마별 CSS 스타일 및 Plotly 템플릿 적용
 if st.session_state.theme_mode == "dark":
-    # 검정색 배경 다크 모드 CSS
+    # 딥 블랙 배경(#000000) 및 다크 테마 커스텀 CSS
     st.markdown(
         """
         <style>
-        /* 메인 및 사이드바 배경 검정색 설정 */
-        .stApp, [data-testid="stSidebar"] {
+        /* 1. 전체 앱 화면 및 사이드바 배경을 완전한 검은색으로 설정 */
+        .stApp, [data-testid="stSidebar"], [data-testid="stHeader"] {
             background-color: #000000 !important;
             color: #ffffff !important;
         }
-        /* 텍스트 및 라벨 흰색 설정 */
-        h1, h2, h3, h4, h5, h6, p, label, .stMarkdown, div {
+
+        /* 2. 일반 텍스트, 라벨, 헤더를 선명한 흰색으로 설정 */
+        h1, h2, h3, h4, h5, h6, p, label, span, div {
             color: #ffffff !important;
         }
-        /* 지표 카드(st.metric) 배경 및 테두리 설정 */
+
+        /* 3. 지표 카드(st.metric) 어두운 카드 배경 스타일 적용 */
         [data-testid="stMetric"] {
-            background-color: #111111 !important;
-            border: 1px solid #333333 !important;
-            border-radius: 8px;
-            padding: 10px;
+            background-color: #121212 !important;
+            border: 1px solid #2d2d2d !important;
+            border-radius: 10px;
+            padding: 12px;
         }
         [data-testid="stMetricValue"] {
-            color: #00e676 !important; /* 지표 숫자 강조색 */
+            color: #00e676 !important; /* 숫자 강조색 (형광 녹색) */
+        }
+        [data-testid="stMetricLabel"] {
+            color: #b0bec5 !important;
+        }
+
+        /* 4. 입력 폼 컴포넌트(셀렉트박스, 슬라이더 등) 다크 스타일 적용 */
+        div[data-baseweb="select"] > div {
+            background-color: #1e1e1e !important;
+            color: #ffffff !important;
+            border-color: #333333 !important;
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
-    # Plotly 지도 및 차트용 다크 템플릿 지정
     plotly_template = "plotly_dark"
 else:
-    # 기본 라이트 모드 CSS (지표 카드에 깔끔한 테두리만 추가)
+    # 화이트 라이트 모드 커스텀 CSS
     st.markdown(
         """
         <style>
         [data-testid="stMetric"] {
             background-color: #f8f9fa !important;
             border: 1px solid #e9ecef !important;
-            border-radius: 8px;
-            padding: 10px;
+            border-radius: 10px;
+            padding: 12px;
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
-    # Plotly 지도 및 차트용 라이트 템플릿 지정
     plotly_template = "plotly_white"
 
 # ==========================================
@@ -273,9 +283,9 @@ st.markdown("---")
 if df_filtered.empty:
     st.info("조건에 일치하는 매장이 없습니다. 검색 조건이나 반경을 변경해보세요.")
 else:
-    # 색상 지정: 편의점(파란색 계열), 카페(주황색/밝은 노란색 계열)
+    # 색상 지정: 편의점(파란색 계열), 카페(주황색 계열)
     if st.session_state.theme_mode == "dark":
-        # 다크 모드용 시인성이 좋은 밝은 파란색 및 주황색
+        # 다크 모드용 가시성 높은 밝은 네온 파란색 / 네온 주황색 적용
         color_map = {"편의점": "#00d2ff", "카페": "#ff9f43"}
     else:
         color_map = {"편의점": "#1f77b4", "카페": "#ff7f0e"}
@@ -315,7 +325,7 @@ else:
     else:
         fig = px.scatter_mapbox(mapbox_style="open-street-map", **map_kwargs)
 
-    # 다크/라이트 테마 및 레이아웃 설정
+    # 테마 적용 및 레이아웃 설정
     fig.update_layout(
         template=plotly_template,
         margin={"r": 0, "t": 0, "l": 0, "b": 0},

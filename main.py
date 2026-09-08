@@ -1,11 +1,8 @@
 import os
-import folium
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-from folium.plugins import MarkerCluster
-from streamlit_folium import st_folium
 
 # ==========================================
 # 1. 페이지 기본 설정
@@ -56,7 +53,7 @@ if is_dark:
 else:
     st.session_state.theme_mode = "light"
 
-# 테마에 따른 CSS 스타일 및 지도/차트 템플릿 적용
+# 테마에 따른 CSS 스타일 적용
 if st.session_state.theme_mode == "dark":
     st.markdown(
         """
@@ -81,7 +78,6 @@ if st.session_state.theme_mode == "dark":
         """,
         unsafe_allow_html=True,
     )
-    folium_tiles = "CartoDB dark_matter"
     plotly_template = "plotly_dark"
 else:
     st.markdown(
@@ -97,7 +93,6 @@ else:
         """,
         unsafe_allow_html=True,
     )
-    folium_tiles = "OpenStreetMap"
     plotly_template = "plotly_white"
 
 # ==========================================
@@ -105,7 +100,7 @@ else:
 # ==========================================
 st.title("🏪 편의점 & 카페 위치 안내 지도")
 st.caption(
-    "시/도 및 동별 분류 선택, 특정 매장 기준 반경 내 매장 검색 기능 및 통계 차트를 제공합니다."
+    "시/도 및 동별 분류 선택, 특정 매장 기준 반경 내 매장 검색 기능을 제공합니다."
 )
 
 
@@ -171,6 +166,11 @@ def load_data():
     df["경도"] = pd.to_numeric(df["경도"], errors="coerce")
     df = df.dropna(subset=["위도", "경도"])
 
+    # 범주 아이콘 명칭 추가 (지도 표기용)
+    df["업종_구분"] = df["상권업종소분류명"].apply(
+        lambda x: "🏪 편의점" if x == "편의점" else "☕ 카페"
+    )
+
     return df
 
 
@@ -219,7 +219,7 @@ if use_radius_search:
         store_options = (
             df_filtered["상호명"]
             + " ("
-            + df_filtered["상권업종소분류명"]
+            + df_filtered["업종_구분"]
             + " - "
             + df_filtered["동명"]
             + ")"
@@ -280,117 +280,60 @@ st.markdown("---")
 
 
 # ==========================================
-# 8. 메인 화면 - Folium 지도 (아이콘 마커)
+# 8. 메인 화면 - Plotly 지도 표시
 # ==========================================
 if df_filtered.empty:
     st.info("조건에 일치하는 매장이 없습니다. 검색 조건이나 반경을 변경해보세요.")
 else:
+    # 테마별 선명한 색상 지정
+    if st.session_state.theme_mode == "dark":
+        color_map = {"🏪 편의점": "#00d2ff", "☕ 카페": "#ff9f43"}
+    else:
+        color_map = {"🏪 편의점": "#1f77b4", "☕ 카페": "#e67e22"}
+
+    # 중심점 및 zoom 설정
     if use_radius_search and selected_center_store is not None:
         center_lat = selected_center_store["위도"]
         center_lon = selected_center_store["경도"]
-        zoom_level = 14
+        zoom_level = 13
     else:
         center_lat = df_filtered["위도"].mean()
         center_lon = df_filtered["경도"].mean()
-        zoom_level = 13 if selected_dong != "전체" else 11
+        zoom_level = 12 if selected_dong != "전체" else 10
 
-    m = folium.Map(
-        location=[center_lat, center_lon],
-        zoom_start=zoom_level,
-        tiles=folium_tiles,
+    # Map 공통 파라미터
+    map_kwargs = dict(
+        data_frame=df_filtered,
+        lat="위도",
+        lon="경도",
+        color="업종_구분",
+        color_discrete_map=color_map,
+        hover_name="상호명",
+        hover_data={
+            "업종_구분": True,
+            "동명": True,
+            "상권업종소분류명": False,
+            "위도": False,
+            "경도": False,
+        },
+        zoom=zoom_level,
+        center={"lat": center_lat, "lon": center_lon},
+        height=620,
     )
 
-    marker_cluster = MarkerCluster().add_to(m)
+    # Plotly scatter_map / scatter_mapbox 분기
+    if hasattr(px, "scatter_map"):
+        fig = px.scatter_map(map_style="open-street-map", **map_kwargs)
+    else:
+        fig = px.scatter_mapbox(mapbox_style="open-street-map", **map_kwargs)
 
-    for _, row in df_filtered.iterrows():
-        is_cafe = row["상권업종소분류명"] == "카페"
-        icon_name = "coffee" if is_cafe else "shopping-cart"
-        icon_color = "orange" if is_cafe else "blue"
-        category_text = "☕ 카페" if is_cafe else "🏪 편의점"
+    # 마커 스타일링 및 레이아웃 설정
+    fig.update_traces(marker=dict(size=12, opacity=0.85))
+    fig.update_layout(
+        template=plotly_template,
+        margin={"r": 0, "t": 0, "l": 0, "b": 0},
+        legend_title_text="매장 구분",
+    )
 
-        folium.Marker(
-            location=[row["위도"], row["경도"]],
-            popup=f"<b>{row['상호명']}</b><br>업종: {category_text}<br>동: {row['동명']}",
-            tooltip=f"{row['상호명']} ({category_text})",
-            icon=folium.Icon(color=icon_color, icon=icon_name, prefix="fa"),
-        ).add_to(marker_cluster)
-
-    st_folium(m, width="100%", height=550, returned_objects=[])
-
-    st.markdown("---")
-
-    # ==========================================
-    # 9. 지도 하단 - 통계 막대 그래프 시각화
-    # ==========================================
-    st.header("📊 매장 통계 분석")
-
-    chart_col1, chart_col2 = st.columns(2)
-
-    # 1) 편의점 vs 카페 수 비교 막대 그래프
-    with chart_col1:
-        st.subheader("🏪 편의점 vs ☕ 카페 비율")
-        category_counts = (
-            df_filtered["상권업종소분류명"].value_counts().reset_index()
-        )
-        category_counts.columns = ["업종", "매장수"]
-
-        fig_type = px.bar(
-            category_counts,
-            x="업종",
-            y="매장수",
-            color="업종",
-            color_discrete_map={
-                "편의점": "#1f77b4"
-                if st.session_state.theme_mode == "light"
-                else "#00d2ff",
-                "카페": "#ff7f0e"
-                if st.session_state.theme_mode == "light"
-                else "#ff9f43",
-            },
-            text="매장수",
-            height=400,
-        )
-        fig_type.update_traces(
-            texttemplate="%{text:,}개", textposition="outside"
-        )
-        fig_type.update_layout(
-            template=plotly_template,
-            xaxis_title="",
-            yaxis_title="매장 수 (개)",
-            showlegend=False,
-        )
-        st.plotly_chart(fig_type, use_container_width=True)
-
-    # 2) 동별 카페 수 순위 막대 그래프 (Top 15)
-    with chart_col2:
-        st.subheader("☕ 동별 카페 수 현황 (Top 15)")
-
-        # 카페 데이터만 필터링 후 동별 집계
-        cafe_df = df_filtered[df_filtered["상권업종소분류명"] == "카페"]
-
-        if cafe_df.empty:
-            st.info("선택된 조건 내에 카페가 존재하지 않습니다.")
-        else:
-            dong_cafe_counts = (
-                cafe_df["동명"].value_counts().head(15).reset_index()
-            )
-            dong_cafe_counts.columns = ["동명", "카페수"]
-
-            fig_dong_cafe = px.bar(
-                dong_cafe_counts,
-                x="동명",
-                y="카페수",
-                color_discrete_sequence=["#ff7f0e" if st.session_state.theme_mode == "light" else "#ff9f43"],
-                text="카페수",
-                height=400,
-            )
-            fig_dong_cafe.update_traces(
-                texttemplate="%{text:,}개", textposition="outside"
-            )
-            fig_dong_cafe.update_layout(
-                template=plotly_template,
-                xaxis_title="동 이름",
-                yaxis_title="카페 수 (개)",
-                xaxis_tickangle=-45,
-            )
-            st.plotly_chart(fig_dong_cafe, use_container_width=True)
+    # 지도 출력
+    st.plotly_chart(fig, use_container_width=True)

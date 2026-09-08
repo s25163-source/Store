@@ -166,6 +166,11 @@ def load_data():
     df["경도"] = pd.to_numeric(df["경도"], errors="coerce")
     df = df.dropna(subset=["위도", "경도"])
 
+    # 범주 아이콘 명칭 추가 (지도 표기용)
+    df["업종_구분"] = df["상권업종소분류명"].apply(
+        lambda x: "🏪 편의점" if x == "편의점" else "☕ 카페"
+    )
+
     return df
 
 
@@ -214,7 +219,7 @@ if use_radius_search:
         store_options = (
             df_filtered["상호명"]
             + " ("
-            + df_filtered["상권업종소분류명"]
+            + df_filtered["업종_구분"]
             + " - "
             + df_filtered["동명"]
             + ")"
@@ -275,19 +280,16 @@ st.markdown("---")
 
 
 # ==========================================
-# 8. 메인 화면 - Plotly 지도 (아이콘 심볼 적용)
+# 8. 메인 화면 - Plotly 지도 표시
 # ==========================================
 if df_filtered.empty:
     st.info("조건에 일치하는 매장이 없습니다. 검색 조건이나 반경을 변경해보세요.")
 else:
-    # 1) 테마별 색상 및 기호(아이콘 심볼) 매핑
+    # 테마별 선명한 색상 지정
     if st.session_state.theme_mode == "dark":
-        color_map = {"편의점": "#00d2ff", "카페": "#ff9f43"}
+        color_map = {"🏪 편의점": "#00d2ff", "☕ 카페": "#ff9f43"}
     else:
-        color_map = {"편의점": "#1f77b4", "카페": "#d9534f"}
-
-    # 업종별 심볼 아이콘 지정 (Plotly Mapbox/Map 지원 기호)
-    symbol_map = {"카페": "cafe", "편의점": "grocery"}
+        color_map = {"🏪 편의점": "#1f77b4", "☕ 카페": "#e67e22"}
 
     # 중심점 및 zoom 설정
     if use_radius_search and selected_center_store is not None:
@@ -304,14 +306,13 @@ else:
         data_frame=df_filtered,
         lat="위도",
         lon="경도",
-        color="상권업종소분류명",
-        symbol="상권업종소분류명",  # 업종에 따라 각기 다른 아이콘 기호 부여
+        color="업종_구분",
         color_discrete_map=color_map,
-        symbol_map=symbol_map,
         hover_name="상호명",
         hover_data={
-            "상권업종소분류명": True,
+            "업종_구분": True,
             "동명": True,
+            "상권업종소분류명": False,
             "위도": False,
             "경도": False,
         },
@@ -320,17 +321,14 @@ else:
         height=620,
     )
 
-    # Plotly scatter_map / scatter_mapbox 분기 및 호출
+    # Plotly scatter_map / scatter_mapbox 분기
     if hasattr(px, "scatter_map"):
         fig = px.scatter_map(map_style="open-street-map", **map_kwargs)
-        # 아이콘 크기 키우기 (최신 scatter_map 용)
-        fig.update_traces(marker=dict(size=14))
     else:
         fig = px.scatter_mapbox(mapbox_style="open-street-map", **map_kwargs)
-        # 아이콘 크기 키우기 (구버전 scatter_mapbox 용)
-        fig.update_traces(marker=dict(size=14))
 
-    # 레이아웃 및 테마 설정
+    # 마커 스타일링 및 레이아웃 설정
+    fig.update_traces(marker=dict(size=12, opacity=0.85))
     fig.update_layout(
         template=plotly_template,
         margin={"r": 0, "t": 0, "l": 0, "b": 0},
